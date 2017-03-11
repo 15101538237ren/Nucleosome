@@ -308,7 +308,8 @@ vector<int> get_neucleosome_id_list_from_pos_list(vector<int> index_pos_list, st
     return nucleo_id_list;
 }
 
-void simulate(int round_no,int generation, int time_step, string init_cell,vector<int> neucleosome_id_list,vector<vector<int>> cpg_id_list, string detail_file_dir, string ratio_file_dir,string nucleosome_pos_file_path, vector<double> propensity_list,vector<double> nucleosome_propensity_list, vector<double> nuceo_to_cpg_efficiency,vector<double> k_range, int update_nuc_status_frequency, vector<int> index_pos_list, int max_cells){
+void simulate(int round_no,int generation, int time_step, string init_cell,vector<int> neucleosome_id_list,vector<vector<int>> cpg_id_list, string detail_file_dir, string ratio_file_dir,string nucleosome_pos_file_path, vector<double> propensity_list,vector<double> nucleosome_propensity_list, vector<double> nuceo_to_cpg_efficiency,vector<double> nearby_promote_efficiency,vector<double> k_range, int update_nuc_status_frequency, vector<int> index_pos_list, int max_cells)
+{
     
     srand(time(0));
     vector<string> cell_collection;
@@ -329,7 +330,10 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
         
         //对本轮模拟的细胞采样
         vector<string> cells_wait_to_add;
+        vector<string> cells_of_nuc_wait_to_add;
         unsigned long cc_size = cell_collection.size();
+        unsigned long nc_size = nucleo_collection.size();
+        
         if(cc_size > max_cells/2){
             vector<string>::iterator it=cell_collection.begin();
             vector<int> index_vec = index_random(max_cells/2, max_cells);
@@ -337,6 +341,20 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
             for(int j=0;it!=cell_collection.end();j++){
                 if((pos>=index_vec.size()) or (j != index_vec[pos])){
                     cell_collection.erase(it);
+                }else{
+                    pos++;
+                    it++;
+                }
+            }
+        }
+        
+        if(nc_size > max_cells/2){
+            vector<string>::iterator it=nucleo_collection.begin();
+            vector<int> index_vec = index_random(max_cells/2, max_cells);
+            int pos=0;
+            for(int j=0;it!=nucleo_collection.end();j++){
+                if((pos>=index_vec.size()) or (j != index_vec[pos])){
+                    nucleo_collection.erase(it);
                 }else{
                     pos++;
                     it++;
@@ -366,7 +384,7 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                     double sum_propensity = 0.0;
                     int reaction_id=-1;
                     int nucleo_id = neucleosome_id_list[target_reaction_CpG_site];
-                    char status_of_its_nucleosome = nucleosome_status_cp[nucleo_id];
+                    char status_of_its_nucleosome = nucleo_collection[idx][nucleo_id];
                     
                     double u_add = 0.0;
                     double m_minus = 0.0;
@@ -438,12 +456,37 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                             au_promote_ratio = uu_promote_ratio;
                         }
                         
+                        double near_by_nuc_uu_promote_ratio = 0.0;
+                        double near_by_nuc_au_promote_ratio = 0.0;
+                        
+                        if (k==0 || k == cpg_id_list.size()-1)
+                        {
+                            int target_k = 1;
+                            if (k == cpg_id_list.size()-1)
+                            {
+                                target_k = (int)cpg_id_list.size()-2;
+                            }
+                            if (nucleo_collection[idx][target_k] == 'A' || nucleo_collection[idx][target_k] =='H')
+                            {
+                                near_by_nuc_uu_promote_ratio = 1.0;
+                                near_by_nuc_au_promote_ratio = 1.0;
+                            }
+                        }
+                        else
+                        {
+                            if (nucleo_collection[idx][k-1] == 'A' || nucleo_collection[idx][k-1] =='H' || nucleo_collection[idx][k+1] == 'A' || nucleo_collection[idx][k+1] =='H')
+                            {
+                                near_by_nuc_uu_promote_ratio = 1.0;
+                                near_by_nuc_au_promote_ratio = 1.0;
+                            }
+                        }
+                        
                         //核小体的四种反应速率
                         double uu_k_plus=nucleosome_propensity_list[0];
-                        uu_k_plus = uu_k_plus + uu_promote_ratio * k_range[0];
+                        uu_k_plus = uu_k_plus + uu_promote_ratio * k_range[0] + near_by_nuc_uu_promote_ratio * nearby_promote_efficiency[0];
                         
                         double au_k_plus=nucleosome_propensity_list[1];
-                        au_k_plus = au_k_plus + au_promote_ratio * k_range[1];
+                        au_k_plus = au_k_plus + au_promote_ratio * k_range[1] + near_by_nuc_au_promote_ratio *nearby_promote_efficiency[1];
                         
                         double aa_i_minus=nucleosome_propensity_list[2];
                         
@@ -493,7 +536,8 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
             cells_wait_to_add.pb(cell_1);
             cells_wait_to_add.pb(cell_2);
         }
-    
+        cell_collection = cells_wait_to_add;
+        nucleo_collection = cells_of_nuc_wait_to_add;
     }
 }
 
@@ -529,11 +573,15 @@ void start_simulation()
     //核小体的趋向性函数,4种反应各自的比例
     vector<double> nucleosome_propensity_list = {0.25,0.25,0.25,0.25};
     
+    //相邻核小体对当前核小体的促进效率
+    vector<double> nearby_promote_efficiency = {0.1,0.1};
+    
     //UU+的Kmax-Kmin,和AU+的Kmax-Kmin
     vector<double> k_range = {0.25,0.25};
     
     //核小体对u+以及m-两个反应速率的促进程度，按照其u+,m-原始速率的倍数计算
     vector<double> nuceo_to_cpg_efficiency = {1.0, 0.5};
+    
     
     vector<int> index_pos_list;
     
@@ -585,7 +633,7 @@ void start_simulation()
     if (simulation){
         for(int round_i=round_start;round_i<=round_end;round_i++)
         {
-            simulate(round_i, generations,time_step,init_cell,neucleosome_id_list,cpg_id_list,detail_file_dir,ratio_file_dir,nucleosome_pos_file_path,propensity_list,nucleosome_propensity_list,nuceo_to_cpg_efficiency,k_range,update_nuc_status_frequency,index_pos_list,max_cells);
+            simulate(round_i, generations,time_step,init_cell,neucleosome_id_list,cpg_id_list,detail_file_dir,ratio_file_dir,nucleosome_pos_file_path,propensity_list,nucleosome_propensity_list,nuceo_to_cpg_efficiency,nearby_promote_efficiency,k_range,update_nuc_status_frequency,index_pos_list,max_cells);
         }
     }
 }
