@@ -36,8 +36,17 @@ vector<int> nucleosome_start_pos_list;
 vector<int> nucleosome_end_pos_list;
 string nucleosome_status;
 
+//CpG对应反应编号所需的原CpG状态
 char right_status_of_reaction[] = {'U','H','M','H'};
+
+//核小体对应反应编号所需的原核小体状态
+char right_status_of_nuc_reaction[] = {'U','H','A','H'};
+
+//对应反应编号，反应后的CpG状态
 char right_status_hash[] = {'H','M','H','U'};
+
+//对应反应编号，反应后的核小体状态
+char right_nuc_status_hash[] = {'H','A','H','U'};
 
 //对0-range采sample_num个样本编号
 vector<int> index_random(int sample_num, int range){
@@ -312,14 +321,16 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
 {
     
     srand(time(0));
+    //CpG链的细胞列表
     vector<string> cell_collection;
+    //核小体的细胞列表，和CpG链的细胞列表保持同步
     vector<string> nucleo_collection;
     cell_collection.pb(init_cell);
     nucleo_collection.push_back(nucleosome_status);
     
     //拷贝全局初始化的核小体状态以便于模拟的时候做更改
     
-    for(int i=1; i<=generation; i++)
+    for(int i = 1; i<= generation; i++)
     {
         //计时
         time_t raw_time_start;
@@ -332,32 +343,22 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
         vector<string> cells_wait_to_add;
         vector<string> cells_of_nuc_wait_to_add;
         unsigned long cc_size = cell_collection.size();
-        unsigned long nc_size = nucleo_collection.size();
+//        unsigned long nc_size = nucleo_collection.size();
         
         if(cc_size > max_cells/2){
-            vector<string>::iterator it=cell_collection.begin();
+            vector<string>::iterator it = cell_collection.begin();
+            vector<string>::iterator it2 = nucleo_collection.begin();
             vector<int> index_vec = index_random(max_cells/2, max_cells);
             int pos=0;
-            for(int j=0;it!=cell_collection.end();j++){
-                if((pos>=index_vec.size()) or (j != index_vec[pos])){
+            
+            for(int j = 0 ; it != cell_collection.end() && it2 != nucleo_collection.end() ; j++){
+                if(( pos >= index_vec.size()) or (j != index_vec[pos])){
                     cell_collection.erase(it);
+                    nucleo_collection.erase(it2);
                 }else{
                     pos++;
                     it++;
-                }
-            }
-        }
-        
-        if(nc_size > max_cells/2){
-            vector<string>::iterator it=nucleo_collection.begin();
-            vector<int> index_vec = index_random(max_cells/2, max_cells);
-            int pos=0;
-            for(int j=0;it!=nucleo_collection.end();j++){
-                if((pos>=index_vec.size()) or (j != index_vec[pos])){
-                    nucleo_collection.erase(it);
-                }else{
-                    pos++;
-                    it++;
+                    it2++;
                 }
             }
         }
@@ -367,18 +368,24 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
         vector<vector<int> > U_count_statistics(time_step);
         vector<vector<string> > out_detail_seq_arr(cell_collection.size());
         
+        vector<vector<int> > AA_count_statistics(time_step);
+        vector<vector<int> > AU_count_statistics(time_step);
+        vector<vector<int> > UU_count_statistics(time_step);
+        vector<vector<string> > out_nuc_detail_seq_arr(nucleo_collection.size());
+        
         //迭代所有细胞
-        for(int idx=0; idx<cell_collection.size(); idx++){
+        for(int idx=0; idx < cell_collection.size(); idx++){
             
             vector<string> vect_tmp;
             
             //迭代所有时间步
-            for(int j=0; j<time_step; j++){
+            for(int j=0 ; j< time_step ; j++){
                 
                 int cell_len = (int)cell_collection[idx].length();
+                int nuc_len = (int)nucleo_collection[idx].length();
                 
                 //迭代所有CpG位点
-                for(int k=0; k<cell_len; k++){
+                for(int k = 0; k < cell_len; k++){
                     int target_reaction_CpG_site = rand()%(cell_len-1);  //0~cell_len-1
                     
                     double sum_propensity = 0.0;
@@ -386,19 +393,22 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                     int nucleo_id = neucleosome_id_list[target_reaction_CpG_site];
                     char status_of_its_nucleosome = nucleo_collection[idx][nucleo_id];
                     
+                    //核小体促进u+的比率
                     double u_add = 0.0;
+                    //核小体减小m-的比率
                     double m_minus = 0.0;
-                    if(status_of_its_nucleosome=='H' or status_of_its_nucleosome == 'A')
+                    
+                    if(status_of_its_nucleosome == 'H' or status_of_its_nucleosome == 'A')
                     {
                         u_add = nuceo_to_cpg_efficiency[0];
                         m_minus = nuceo_to_cpg_efficiency[1];
                     }
                     
-                    
-                    double u_i_plus=propensity_list[0];
+                    double u_i_plus = propensity_list[0];
                     u_i_plus = u_i_plus + u_add * u_i_plus;
                     
                     double h_i_plus=propensity_list[1];
+                    
                     double m_i_minus=propensity_list[2];
                     m_i_minus = max(m_i_minus - m_minus * m_i_minus,0.0);
                     
@@ -407,17 +417,17 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                     vector<double> propensity_tmp = {u_i_plus,h_i_plus,m_i_minus,h_i_minus};
                     int num_of_reactions = (int)propensity_tmp.size();
                     
-                    for(int i=0; i<num_of_reactions; i++){
-                        sum_propensity += propensity_tmp[i];
+                    for(int l=0; l<num_of_reactions; l++){
+                        sum_propensity += propensity_tmp[l];
                     }
                     
                     double random_num = (double)(rand()%RAND_MAX)/RAND_MAX;
                     double tmp_sum_propencity = 0.0;
                     random_num = random_num * sum_propensity;
-                    for(int i = 0; i<num_of_reactions; i++){
-                        tmp_sum_propencity = tmp_sum_propencity + propensity_tmp[i];
+                    for(int l = 0; l < num_of_reactions; l++){
+                        tmp_sum_propencity = tmp_sum_propencity + propensity_tmp[l];
                         if(random_num < tmp_sum_propencity){
-                            reaction_id = i;
+                            reaction_id = l;
                             break;
                         }
                     }
@@ -431,13 +441,15 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                     cell_collection[idx][target_reaction_CpG_site] = right_status_hash[reaction_id];
                 }
                 
-                if (j % update_nuc_status_frequency ==0)
+                if ((j % update_nuc_status_frequency ==0) && (j != 0))
                 {
-                    for(int k = 0; k < cpg_id_list.size(); k++)
+                    for(int tk = 0; tk < cpg_id_list.size(); tk++)
                     {
-                        
+                        int k = rand()%(nuc_len - 1);  //0~nuc_len-1
                         double uu_promote_ratio = 0.0;
                         double au_promote_ratio = 0.0;
+                        
+                        //计算核小体内所有CpG的影响系数
                         if (! cpg_id_list[k].empty())
                         {
                             //含有CpG的核小体
@@ -448,7 +460,7 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                             for(int nt = 0; nt < cpg_id_list[k].size(); nt++)
                             {
                                 tot++;
-                                if (cpg_id_list[k][nt] =='H' || cpg_id_list[k][nt] =='M') {
+                                if (cell_collection[idx][cpg_id_list[k][nt]] =='H' || cell_collection[idx][cpg_id_list[k][nt]] =='M') {
                                     m_or_h_cnt++;
                                 }
                             }
@@ -459,7 +471,8 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                         double near_by_nuc_uu_promote_ratio = 0.0;
                         double near_by_nuc_au_promote_ratio = 0.0;
                         
-                        if (k==0 || k == cpg_id_list.size()-1)
+                        //计算邻居核小体的影响系数
+                        if (k == 0 || k == cpg_id_list.size()-1)
                         {
                             int target_k = 1;
                             if (k == cpg_id_list.size()-1)
@@ -482,16 +495,45 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                         }
                         
                         //核小体的四种反应速率
-                        double uu_k_plus=nucleosome_propensity_list[0];
+                        double uu_k_plus = nucleosome_propensity_list[0];
                         uu_k_plus = uu_k_plus + uu_promote_ratio * k_range[0] + near_by_nuc_uu_promote_ratio * nearby_promote_efficiency[0];
                         
-                        double au_k_plus=nucleosome_propensity_list[1];
-                        au_k_plus = au_k_plus + au_promote_ratio * k_range[1] + near_by_nuc_au_promote_ratio *nearby_promote_efficiency[1];
+                        double au_k_plus = nucleosome_propensity_list[1];
+                        au_k_plus = au_k_plus + au_promote_ratio * k_range[1] + near_by_nuc_au_promote_ratio * nearby_promote_efficiency[1];
                         
-                        double aa_i_minus=nucleosome_propensity_list[2];
+                        double aa_k_minus=nucleosome_propensity_list[2];
                         
-                        double au_i_minus=nucleosome_propensity_list[3];
+                        double au_k_minus=nucleosome_propensity_list[3];
                         
+                        vector<double> propensity_tmp = {uu_k_plus,au_k_plus,aa_k_minus,au_k_minus};
+                        int num_of_reactions = (int)propensity_tmp.size();
+                        double sum_propensity = 0.0;
+                        
+                        for(int l=0; l<num_of_reactions; l++){
+                            sum_propensity += propensity_tmp[l];
+                        }
+                        
+                        double random_num = (double)(rand()%RAND_MAX)/RAND_MAX;
+                        double tmp_sum_propencity = 0.0;
+                        int reaction_id = -1;
+                        random_num = random_num * sum_propensity;
+                        
+                        //选反应
+                        for(int l = 0; l < num_of_reactions; l++){
+                            tmp_sum_propencity = tmp_sum_propencity + propensity_tmp[l];
+                            if(random_num < tmp_sum_propencity){
+                                reaction_id = l;
+                                break;
+                            }
+                        }
+                        
+                        char status_of_target_nuc_site = nucleo_collection[idx][k];
+                        
+                        if(right_status_of_nuc_reaction[reaction_id] != status_of_target_nuc_site){
+                            continue;
+                        }
+                        
+                        nucleo_collection[idx][k] = right_nuc_status_hash[reaction_id];
                     }
                 }
                 
@@ -516,11 +558,33 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                 H_count_statistics[j].pb(h_count);
                 U_count_statistics[j].pb(u_count);
                 
+                int aa_count=0,au_count=0,uu_count=0;
+                for (int it=0;it < nuc_len;it++)
+                {
+                    switch (nucleo_collection[idx][it]) {
+                        case 'A':
+                            aa_count++;
+                            break;
+                        case 'H':
+                            au_count++;
+                            break;
+                        case 'U':
+                            uu_count++;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                AA_count_statistics[j].pb(aa_count);
+                AU_count_statistics[j].pb(au_count);
+                UU_count_statistics[j].pb(uu_count);
+                
                 out_detail_seq_arr[idx].pb(cell_collection[idx]);
+                out_nuc_detail_seq_arr[idx].pb(nucleo_collection[idx]);
             }
             
             string cell_1, cell_2;
-            for(int j=0; j<cell_collection[idx].length(); j++){
+            for(int j=0; j< cell_collection[idx].length(); j++){
                 char ch = cell_collection[idx][j];
                 if(ch == 'M'){
                     cell_1.append(1, 'H');
@@ -535,6 +599,30 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
             }
             cells_wait_to_add.pb(cell_1);
             cells_wait_to_add.pb(cell_2);
+            
+            string nuc_cell_1 , nuc_cell_2;
+            
+            for(int k = 0; k< nucleo_collection[idx].length(); k++){
+                char ch = nucleo_collection[idx][k];
+                if(ch == 'A')
+                {
+                    nuc_cell_1.append(1, 'H');
+                    nuc_cell_2.append(1, 'H');
+                }
+                else if(ch == 'U')
+                {
+                    nuc_cell_1.append(1, 'U');
+                    nuc_cell_2.append(1, 'U');
+                }
+                else if(ch == 'H')
+                {
+                    nuc_cell_1.append(1, 'H');
+                    nuc_cell_2.append(1, 'U');
+                }
+            }
+            cells_of_nuc_wait_to_add.pb(nuc_cell_1);
+            cells_of_nuc_wait_to_add.pb(nuc_cell_2);
+            
         }
         cell_collection = cells_wait_to_add;
         nucleo_collection = cells_of_nuc_wait_to_add;
