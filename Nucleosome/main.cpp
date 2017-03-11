@@ -36,6 +36,35 @@ vector<int> nucleosome_start_pos_list;
 vector<int> nucleosome_end_pos_list;
 string nucleosome_status;
 
+//对0-range采sample_num个样本编号
+vector<int> index_random(int sample_num, int range){
+    vector<int> index,return_index;
+    srand(time(0));
+    for(int i=0; i<range; i++){
+        index.pb(0);
+    }
+    for(int i=1; i<=sample_num; i++){
+        int idx = rand()%range;
+        if(index[idx]==0){
+            index[idx] = 1;
+        }else{
+            while(1){
+                idx = rand()%range;
+                if(index[idx]==0){
+                    index[idx] = 1;
+                    break;
+                }
+            }
+        }
+    }
+    for(int i=0; i<range; i++){
+        if(index[i]==1){
+            return_index.pb(i);
+        }
+    }
+    return return_index;
+}
+
 //构建一个最大CpG数量为max_cpg_sites，位置符合超几何分布G(p)的CpG位置向量
 vector<int> construct_n_cpg_sites_for_exp_distribution(int max_cpg_sites, float p)
 {
@@ -199,13 +228,13 @@ void generate_nucleosome_pos_list(int start_pos, int end_pos, string output_file
 //产生核小体位置文件
 void prepare_nucleosome_pos_file()
 {
-    string base_dir = "/Users/Ren/XCodeProjects/Nucleosome/Nucleosome/output";
+    string base_dir = "/Users/Ren/XCodeProjects/Nucleosome/Nucleosome/output/";
     
     int constant_len = 160 ;
     
     int start_pos = 3001600;
     
-    int end_pos = 195365800 + constant_len;
+    int end_pos = 126590304 + constant_len;
     
     string output_file_path = base_dir + "nucleosome_positions.np";
     
@@ -276,8 +305,64 @@ vector<int> get_neucleosome_id_list_from_pos_list(vector<int> index_pos_list, st
     return nucleo_id_list;
 }
 
-void simulate(int generation, int time_step, string init_cell, string detail_file_dir, string ratio_file_dir,string nucleosome_pos_file_path, vector<double> propensity_list, vector<int> index_pos_list, int max_cells){
+void simulate(int round_no,int generation, int time_step, string init_cell,vector<int> neucleosome_id_list,vector<vector<int>> cpg_id_list, string detail_file_dir, string ratio_file_dir,string nucleosome_pos_file_path, vector<double> propensity_list, vector<int> index_pos_list, int max_cells){
     
+    srand(time(0));
+    vector<string> cell_collection;
+    cell_collection.pb(init_cell);
+    
+    //拷贝全局初始化的核小体状态以便于模拟的时候做更改
+    string nucleosome_status_cp(nucleosome_status);
+    
+    for(int i=1; i<=generation; i++){
+        //计时
+        time_t raw_time_start;
+        struct tm * start_time_info;
+        time ( &raw_time_start );
+        start_time_info = localtime ( &raw_time_start );
+        printf ( "round %d, generataion %d start time is: %s", round_no, i,asctime (start_time_info) );
+        
+        //对本轮模拟的细胞采样
+        vector<string> cells_wait_to_add;
+        unsigned long cc_size = cell_collection.size();
+        if(cc_size > max_cells/2){
+            vector<string>::iterator it=cell_collection.begin();
+            vector<int> index_vec = index_random(max_cells/2, max_cells);
+            int pos=0;
+            for(int j=0;it!=cell_collection.end();j++){
+                if((pos>=index_vec.size()) or (j != index_vec[pos])){
+                    cell_collection.erase(it);
+                }else{
+                    pos++;
+                    it++;
+                }
+            }
+        }
+        
+        vector<vector<int> > M_count_statistics(time_step);
+        vector<vector<int> > H_count_statistics(time_step);
+        vector<vector<int> > U_count_statistics(time_step);
+        vector<vector<string> > out_detail_seq_arr(cell_collection.size());
+        
+        //迭代所有细胞
+        for(int idx=0; idx<cell_collection.size(); idx++){
+            
+            vector<string> vect_tmp;
+            
+            //迭代所有时间步
+            for(int j=0; j<time_step; j++){
+                
+                int cell_len = (int)cell_collection[idx].length();
+                
+                //迭代所有CpG位点
+                for(int k=0; k<cell_len; k++){
+                    
+                }
+                
+            }
+        }
+    
+    }
 }
 
 vector<vector<int>> get_corresponding_cpg_id_list(int cpg_id_list_size,vector<int> nucleosome_id_list)
@@ -299,7 +384,7 @@ void start_simulation()
     int round_end = 6;
     
     int generations = 30;
-    int max_cpg_sites = -1;
+    int max_cpg_sites = 100000;
     string init_cell;
     double m_ratio = 0.181214;
     double u_ratio = 0.391004;
@@ -342,6 +427,7 @@ void start_simulation()
         index_pos_list = get_pos_list_from_bed_file(input_bed_file_path,max_cpg_sites);
     }
     
+    
     //根据CpG在数组index_pos_list中的下标,查找对应的核小体下标
     vector<int> neucleosome_id_list = get_neucleosome_id_list_from_pos_list(index_pos_list,nucleosome_pos_file_path);
     
@@ -355,34 +441,9 @@ void start_simulation()
     if (simulation){
         for(int round_i=round_start;round_i<=round_end;round_i++)
         {
-            simulate(generations,time_step,init_cell,detail_file_dir,ratio_file_dir,nucleosome_pos_file_path,propensity_list,index_pos_list,max_cells);
+            simulate(round_i, generations,time_step,init_cell,neucleosome_id_list,cpg_id_list,detail_file_dir,ratio_file_dir,nucleosome_pos_file_path,propensity_list,index_pos_list,max_cells);
         }
     }
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
 }
 
 int main(int argc, const char * argv[]) {
