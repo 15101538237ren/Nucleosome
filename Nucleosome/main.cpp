@@ -317,7 +317,7 @@ vector<int> get_neucleosome_id_list_from_pos_list(vector<int> index_pos_list, st
     return nucleo_id_list;
 }
 
-void simulate(int round_no,int generation, int time_step, string init_cell,vector<int> neucleosome_id_list,vector<vector<int>> cpg_id_list, string detail_file_dir, string ratio_file_dir,string nucleosome_pos_file_path, vector<double> propensity_list,vector<double> nucleosome_propensity_list, vector<double> nuceo_to_cpg_efficiency,vector<double> nearby_promote_efficiency,vector<double> k_range, int update_nuc_status_frequency, vector<int> index_pos_list, int max_cells)
+void simulate(int round_no,int generation, int time_step, string init_cell,vector<int> neucleosome_id_list,vector<vector<int>> cpg_id_list, string detail_file_dir, string ratio_file_dir,string nucleosome_pos_file_path, vector<double> propensity_list,vector<double> nucleosome_propensity_list, vector<double> nuceo_to_cpg_efficiency,vector<double> nearby_promote_efficiency,vector<double> k_range, int update_nuc_status_frequency, vector<int> index_pos_list, int max_cells,int out_start_gen,int out_end_gen)
 {
     
     srand(time(0));
@@ -333,6 +333,7 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
     for(int i = 1; i<= generation; i++)
     {
         //计时
+        clock_t gen_start_time=clock();
         time_t raw_time_start;
         struct tm * start_time_info;
         time ( &raw_time_start );
@@ -410,7 +411,7 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                     double h_i_plus=propensity_list[1];
                     
                     double m_i_minus=propensity_list[2];
-                    m_i_minus = max(m_i_minus - m_minus * m_i_minus,0.0);
+                    m_i_minus = max(m_i_minus + m_minus * m_i_minus,0.0);
                     
                     double h_i_minus=propensity_list[3];
                     
@@ -445,7 +446,7 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                 {
                     for(int tk = 0; tk < cpg_id_list.size(); tk++)
                     {
-                        int k = rand()%(nuc_len - 1);  //0~nuc_len-1
+                        int k = rand()%(cpg_id_list.size() - 1);  //0~nuc_len-1
                         double uu_promote_ratio = 0.0;
                         double au_promote_ratio = 0.0;
                         
@@ -457,10 +458,14 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                             int tot = 0;
                             int m_or_h_cnt = 0;
                             
-                            for(int nt = 0; nt < cpg_id_list[k].size(); nt++)
+                            int cpg_id_list_size = (int)cpg_id_list[k].size();
+                            
+                            for(int nt = 0; nt < cpg_id_list_size; nt++)
                             {
                                 tot++;
-                                if (cell_collection[idx][cpg_id_list[k][nt]] =='H' || cell_collection[idx][cpg_id_list[k][nt]] =='M') {
+                                int cpg_id = cpg_id_list[k][nt];
+                                char CpG_status_tmp = cell_collection[idx][cpg_id];
+                                if ( CpG_status_tmp=='H' || CpG_status_tmp =='M') {
                                     m_or_h_cnt++;
                                 }
                             }
@@ -487,7 +492,9 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                         }
                         else
                         {
-                            if (nucleo_collection[idx][k-1] == 'A' || nucleo_collection[idx][k-1] =='H' || nucleo_collection[idx][k+1] == 'A' || nucleo_collection[idx][k+1] =='H')
+                            char status_left = nucleo_collection[idx][k-1];
+                            char status_right = nucleo_collection[idx][k+1];
+                            if ( status_left == 'A' || status_left =='H' || status_right == 'A' || status_right =='H')
                             {
                                 near_by_nuc_uu_promote_ratio = 1.0;
                                 near_by_nuc_au_promote_ratio = 1.0;
@@ -558,7 +565,7 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                 H_count_statistics[j].pb(h_count);
                 U_count_statistics[j].pb(u_count);
                 
-                int aa_count=0,au_count=0,uu_count=0;
+                int aa_count=0, au_count=0, uu_count=0;
                 for (int it=0;it < nuc_len;it++)
                 {
                     switch (nucleo_collection[idx][it]) {
@@ -583,6 +590,7 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                 out_nuc_detail_seq_arr[idx].pb(nucleo_collection[idx]);
             }
             
+            //处理细胞分裂
             string cell_1, cell_2;
             for(int j=0; j< cell_collection[idx].length(); j++){
                 char ch = cell_collection[idx][j];
@@ -600,9 +608,9 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
             cells_wait_to_add.pb(cell_1);
             cells_wait_to_add.pb(cell_2);
             
+            //处理核小体的细胞分裂
             string nuc_cell_1 , nuc_cell_2;
-            
-            for(int k = 0; k< nucleo_collection[idx].length(); k++){
+            for(int k = 0; k < nucleo_collection[idx].length(); k++){
                 char ch = nucleo_collection[idx][k];
                 if(ch == 'A')
                 {
@@ -622,10 +630,92 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
             }
             cells_of_nuc_wait_to_add.pb(nuc_cell_1);
             cells_of_nuc_wait_to_add.pb(nuc_cell_2);
-            
         }
+        vector<double> m_means_ratio;
+        vector<double> h_means_ratio;
+        vector<double> u_means_ratio;
+        
+        vector<double> aa_means_ratio;
+        vector<double> au_means_ratio;
+        vector<double> uu_means_ratio;
+        
+        for (int j = 0; j < time_step; j++)
+        {
+            
+            double m_sum = accumulate(M_count_statistics[j].begin(), M_count_statistics[j].end(), 0.0);
+            double m_mean =  m_sum / init_cell.length(); //按照M_count_statistics的行求均值，即每个cell_collection内所有细胞在特定time_step的均值
+            m_means_ratio.pb(m_mean);
+            
+            double h_sum = accumulate(H_count_statistics[j].begin(), H_count_statistics[j].end(), 0.0);
+            double h_mean =  h_sum / init_cell.length();
+            h_means_ratio.pb(h_mean);
+            
+            double u_sum = accumulate(U_count_statistics[j].begin(), U_count_statistics[j].end(), 0.0);
+            double u_mean =  u_sum / init_cell.length();
+            u_means_ratio.pb(u_mean);
+            
+            double aa_sum = accumulate(AA_count_statistics[j].begin(), AA_count_statistics[j].end(), 0.0);
+            double aa_mean = aa_sum / nucleosome_status.length();
+            aa_means_ratio.pb(aa_mean);
+            
+            double au_sum = accumulate(AU_count_statistics[j].begin(), AU_count_statistics[j].end(), 0.0);
+            double au_mean =  au_sum / nucleosome_status.length();
+            au_means_ratio.pb(au_mean);
+            
+            double uu_sum = accumulate(UU_count_statistics[j].begin(), UU_count_statistics[j].end(), 0.0);
+            double uu_mean =  uu_sum / nucleosome_status.length();
+            uu_means_ratio.pb(uu_mean);
+        }
+        
+        int len_init_cell=init_cell.length();
+        int buf_ratio_size=50;
+        
+        if ((i >= out_start_gen) and (i<= out_end_gen))
+        {
+            for(int t = 0; t < time_step; t++)
+            {
+                string ratio_file_path=ratio_file_dir+to_string(i)+"_"+to_string(t)+".csv";
+                ofstream out_ratio(ratio_file_path,(round_no==round_start)?ios::trunc:ios::app);
+                if(!out_ratio){
+                    cout << "Unable to open out" << ratio_file_path << endl;
+                    exit(1);
+                }
+                else{
+                    char buffer[buf_ratio_size];
+                    sprintf(buffer, "%d,%.4f,%.4f,%.4f\n",round_no, m_means_ratio[t],h_means_ratio[t],u_means_ratio[t]);
+                    out_ratio<<buffer;
+                    out_ratio.close();
+                }
+            }
+            
+            int buf_detail_size=len_init_cell+50;
+            for(int idx = 0; idx < cell_collection.size();idx++)
+            {
+                for(int j= 0; j < time_step;j++)
+                {
+                    string detail_file_path=detail_file_dir+to_string(i)+"_"+to_string(j)+".csv";
+                    ofstream out_detail(detail_file_path,(round_no==round_start)?ios::trunc:ios::app);
+                    
+                    if(!out_detail){
+                        cout << "Unable to open out" << detail_file_path << endl;
+                        exit(1);
+                    }
+                    else{
+                        char buffer[buf_detail_size];//在index的size不等于1时,得到的结果是多细胞的
+                        sprintf(buffer, "%d,%s\n", round_no, out_detail_seq_arr[0][j].c_str());
+                        out_detail<<buffer;
+                        out_detail.close();
+                    }
+                }
+            }
+        }
+        
         cell_collection = cells_wait_to_add;
         nucleo_collection = cells_of_nuc_wait_to_add;
+        
+        clock_t gen_end_time=clock();
+        cout<< "generation time:"<<static_cast<double>(gen_end_time-gen_start_time)/CLOCKS_PER_SEC<<"s"<<endl;//输出1代运行时间
+
     }
 }
 
@@ -647,11 +737,14 @@ void start_simulation()
     int round_start = 1;
     int round_end = 6;
     
-    int generations = 30;
+    int generations = 3;
     int max_cpg_sites = 100000;
     string init_cell;
     double m_ratio = 0.181214;
     double u_ratio = 0.391004;
+    
+    int out_start_gen = generations;
+    int out_end_gen = generations;
     
     int update_nuc_status_frequency = 2;
     
@@ -668,7 +761,7 @@ void start_simulation()
     vector<double> k_range = {0.25,0.25};
     
     //核小体对u+以及m-两个反应速率的促进程度，按照其u+,m-原始速率的倍数计算
-    vector<double> nuceo_to_cpg_efficiency = {1.0, 0.5};
+    vector<double> nuceo_to_cpg_efficiency = {1.0, -0.5};
     
     
     vector<int> index_pos_list;
@@ -721,7 +814,7 @@ void start_simulation()
     if (simulation){
         for(int round_i=round_start;round_i<=round_end;round_i++)
         {
-            simulate(round_i, generations,time_step,init_cell,neucleosome_id_list,cpg_id_list,detail_file_dir,ratio_file_dir,nucleosome_pos_file_path,propensity_list,nucleosome_propensity_list,nuceo_to_cpg_efficiency,nearby_promote_efficiency,k_range,update_nuc_status_frequency,index_pos_list,max_cells);
+            simulate(round_i, generations,time_step,init_cell,neucleosome_id_list,cpg_id_list,detail_file_dir,ratio_file_dir,nucleosome_pos_file_path,propensity_list,nucleosome_propensity_list,nuceo_to_cpg_efficiency,nearby_promote_efficiency,k_range,update_nuc_status_frequency,index_pos_list,max_cells,out_start_gen,out_end_gen);
         }
     }
 }
