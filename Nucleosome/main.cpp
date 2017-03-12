@@ -31,6 +31,7 @@
 #define pb push_back
 
 using namespace std;
+const float EPSINON = 1e-6;
 
 vector<int> nucleosome_start_pos_list;
 vector<int> nucleosome_end_pos_list;
@@ -765,6 +766,328 @@ vector<vector<int>> get_corresponding_cpg_id_list(int cpg_id_list_size,vector<in
     return cpg_id_list;
 }
 
+void sort_to_bed(int round_size,vector<int> pos_list,string sort_detail_dir,string bed_files_dir,int generation_start,int generation_end,int time_steps,int max_cpg_sites)
+{
+    int  buf_size=max_cpg_sites+50;
+    char buffer[buf_size];
+    
+    for(int gen=generation_start;gen<=generation_end;gen++)
+    {
+        for (int t=0;t<time_steps;t++)
+        {
+            int round=0;
+            unsigned long len_methy_seq=0;
+            vector<int> methy_status;
+            
+            string detail_file_path=sort_detail_dir+to_string(gen)+"_"+to_string(t)+".csv";
+            ifstream detail_file(detail_file_path);
+            
+            if(!detail_file){
+                cout << "Unable to open read " << detail_file_path << endl;
+                exit(1);
+            }
+            else{
+                string bed_file_path=bed_files_dir+to_string(gen)+"_"+to_string(t)+".bed";
+                ofstream bed_file(bed_file_path);
+                
+                char methy_seq[buf_size];
+                int line_cnt=0;
+                while (! detail_file.eof() && line_cnt< round_size)
+                {
+                    line_cnt=line_cnt+1;
+                    detail_file.getline(buffer,buf_size);
+                    sscanf(buffer,"%d,%s\n",&round,methy_seq);
+                    len_methy_seq=strlen(methy_seq);
+                    for(unsigned long i=0;i<len_methy_seq;i++)
+                    {
+                        char ch=methy_seq[i];
+                        if (ch=='M')
+                        {
+                            if(line_cnt==1)
+                            {
+                                methy_status.push_back(2);
+                            }
+                            else
+                            {
+                                methy_status[i]=methy_status[i]+2;
+                            }
+                        }
+                        else if (ch=='H')
+                        {
+                            if(line_cnt==1)
+                            {
+                                methy_status.push_back(1);
+                            }
+                            else
+                            {
+                                methy_status[i]=methy_status[i]+1;
+                            }
+                        }
+                        else if (ch=='U')
+                        {
+                            if(line_cnt==1)
+                            {
+                                methy_status.push_back(0);
+                            }
+                        }
+                    }
+                }
+                //                vector<float> methy_mean;
+                char wrt_buffer[100];
+                float round_cnt=2*(float)round;
+                for(unsigned long i=0;i<len_methy_seq;i++)
+                {
+                    //                    methy_mean.pb(methy_status[i]/round_cnt);
+                    sprintf(wrt_buffer,"%d %.6f\n",pos_list[i],methy_status[i]/round_cnt);
+                    bed_file<<wrt_buffer;
+                }
+                detail_file.close();
+                bed_file.close();
+            }
+            printf( "finished convert %d.%d to bed\n",gen,t);
+        }
+        
+    }
+}
+map<int,float> read_bed_file_and_store_pos_to_a_struct(string bed_file_path,bool ignore_d)
+{
+    map<int,float> struct_to_store;
+    char buffer[100];
+    int pos;
+    float methy_level;
+    int index=0;
+    ifstream bed_file(bed_file_path);
+    if(!bed_file){
+        cout << "Unable to open read " << bed_file_path << endl;
+        exit(1);
+    }
+    else{
+        while (!bed_file.eof() )
+        {
+            index=index+1;
+            bed_file.getline(buffer,100);
+            sscanf(buffer,"%d %f",&pos,&methy_level);
+            if (ignore_d)
+            {
+                pos=index;
+            }
+            struct_to_store[pos]=methy_level;
+        }
+        bed_file.close();
+    }
+    return struct_to_store;
+}
+
+vector<vector<float>> filter_d_length_to_generate_CpG_pairs_not_inter_with_other_cpg(int d,vector<int> keys,vector<float> vals)
+{
+    int key_size=(int)keys.size();
+    int pre_key,post_key;
+    float pre_val,post_val;
+    vector<vector<float>> array_to_store_pairs(2);
+    
+    for (int i=0;i< key_size;i++)
+    {
+        pre_key = keys[i];
+        post_key = keys[i+1];
+        
+        if (pre_key + d == post_key)
+        {
+            pre_val=vals[i];
+            post_val=vals[i+1];
+            //            printf("<%d,%d> : %.2f, %.2f\n",pre_key,post_key,pre_val,post_val);
+            array_to_store_pairs[0].push_back(pre_val);
+            array_to_store_pairs[1].push_back(post_val);
+        }
+    }
+    
+    return array_to_store_pairs;
+}
+vector<vector<float>> filter_d_length_to_generate_CpG_pairs(int d,map<int,float> CpG_pos_and_methy_struct)
+{
+    int map_size=(int)CpG_pos_and_methy_struct.size();
+    int pre_key,post_key;
+    float pre_val,post_val;
+    vector<vector<float>> array_to_store_pairs(2);
+    for(map<int,float>::iterator it = CpG_pos_and_methy_struct.begin(); it != CpG_pos_and_methy_struct.end(); ++it) {
+        pre_key=it->first;
+        pre_val=it->second;
+        post_key=pre_key+d;
+        if (CpG_pos_and_methy_struct.find(post_key) != CpG_pos_and_methy_struct.end())
+        {
+            post_val=CpG_pos_and_methy_struct[post_key];
+            array_to_store_pairs[0].push_back(pre_val);
+            array_to_store_pairs[1].push_back(post_val);
+        }
+    }
+    return array_to_store_pairs;
+}
+
+float calc_C_d_by_pearson_correlation(vector<vector<float>> CpG_pairs)
+{
+    float sum_pre=0.0;
+    float sum_post=0.0;
+    
+    int length = (int)CpG_pairs[0].size();
+    for (int i=0;i<length;i++)
+    {
+        sum_pre=sum_pre+CpG_pairs[0][i];
+        sum_post=sum_post+CpG_pairs[1][i];
+    }
+    
+    float mean1=sum_pre/float(length);
+    float mean2=sum_post/float(length);
+    
+    float sum_up=0.0;
+    float sum_down_left=0.0;
+    float sum_down_right=0.0;
+    
+    float xi,yi;
+    for (int i=0;i<length;i++)
+    {
+        xi=CpG_pairs[0][i];
+        yi=CpG_pairs[1][i];
+        
+        sum_up=sum_up+(xi-mean1)*(yi-mean2);
+        sum_down_left=sum_down_left+(xi-mean1)*(xi-mean1);
+        sum_down_right=sum_down_right+(yi-mean2)*(yi-mean2);
+    }
+    
+    float sum_down=sqrt(sum_down_left*sum_down_right);
+    
+    if((sum_down >= - EPSINON) && (sum_down <= EPSINON))
+    {
+        return -5;
+    }
+    float rd=sum_up/sum_down;
+    return rd;
+}
+
+//读bed文件，计算距离相关性
+void calc_correlation(string bed_file_path,string rd_file_path,int d_max,bool is_inter_with_other_cpg,bool ignore_d=false)
+{
+    ofstream rd_file(rd_file_path);
+    
+    if (!rd_file)
+    {
+        cout << "Unable to open read " << rd_file_path << endl;
+        exit(1);
+    }
+    
+    map<int,float> CpG_pos_and_methy_struct = read_bed_file_and_store_pos_to_a_struct(bed_file_path, ignore_d);
+    
+    vector<int> keys;
+    vector<float> vals;
+    for(map<int,float>::iterator it = CpG_pos_and_methy_struct.begin(); it != CpG_pos_and_methy_struct.end(); ++it) {
+        keys.push_back(it->first);
+        vals.push_back(it->second);
+        //        cout << it->first<<" "<< it->second << endl;
+    }
+    
+    vector<vector<float>> CpG_pairs;
+    int d_count=0;
+    float rd=0.0;
+    char ltw[100];
+    for (int d=2;d<d_max;d++)
+    {
+        if (is_inter_with_other_cpg)
+        {
+            CpG_pairs=filter_d_length_to_generate_CpG_pairs(d,CpG_pos_and_methy_struct);
+        }
+        else
+        {
+            CpG_pairs=filter_d_length_to_generate_CpG_pairs_not_inter_with_other_cpg(d,keys,vals);
+        }
+        d_count = (int)CpG_pairs.size();
+        
+        if (d_count)
+        {
+            rd=calc_C_d_by_pearson_correlation(CpG_pairs);
+            if (rd > -2)
+            {
+                printf("chr%d d=%d, rd=%f\n",1,d,rd);
+                sprintf(ltw,"%d,%f\n",d,rd);
+                rd_file<<ltw;
+            }
+        }
+        else{
+            printf("chr%d passed d=%d",1,d);
+        }
+    }
+    rd_file.close();
+    
+    printf("\n\n");
+}
+
+void calc_mean_rd_from_rd_dir(string rd_dir_name,string out_file_path,int d_max,int generation_start,int generation_end,int time_steps)
+{
+    
+    string rd_file_path;
+    ofstream out_file(out_file_path);
+    if (!out_file)
+    {
+        cout << "Unable to open out " << out_file_path << endl;
+        exit(1);
+    }
+    vector<vector<float>> rd_vect;
+    for (int i=0;i<d_max;i++)
+    {
+        vector<float> tmp_vect;
+        rd_vect.push_back(tmp_vect);
+    }
+    
+    int d=-1;
+    float methy_level=0.0;
+    char buffer[50];
+    float m_sum,m_mean;
+    for(int gen=generation_start;gen <= generation_end;gen++)
+    {
+        for(int step = 0; step < time_steps; step++)
+        {
+            rd_file_path=rd_dir_name+to_string(gen)+"_"+to_string(step)+".csv";
+            ifstream rd_file(rd_file_path);
+            if (!rd_file)
+            {
+                cout << "Unable to open read " << rd_file_path << endl;
+                exit(1);
+            }
+            while (!rd_file.eof() )
+            {
+                rd_file.getline(buffer,50);
+                sscanf(buffer,"%d,%f",&d,&methy_level);
+                rd_vect[d].pb(methy_level);
+            }
+            rd_file.close();
+        }
+    }
+    vector<float> rd_list;
+    char ltw[50];
+    for (d=2;d<d_max;d++)
+    {
+        if (!rd_vect[d].size())
+            continue;
+        m_sum = accumulate(rd_vect[d].begin(), rd_vect[d].end(), 0.0);
+        m_mean =  m_sum / (float) rd_vect[d].size(); //按照M_count_statistics的行求均值，即每个cell_collection内所有细胞在特定time_step的均值
+        sprintf(ltw,"%d,%f\n",d,m_mean);
+        out_file<<ltw;
+    }
+    out_file.close();
+    printf("writing mean rd finished!\n");
+}
+
+void calc_correlation_for_generations(int generation_start,int generation_end,int time_steps,string bed_dir,string rd_without_dir,int d_max,bool calc_interval=false,bool ignore_d=false)
+{
+    for (int gen=generation_start; gen <= generation_end; gen++)
+    {
+        for(int t=0; t< time_steps;t++)
+        {
+            string input_bed_file_path=bed_dir+to_string(gen)+"_"+to_string(t)+".bed";
+            string out_rd_file_path=rd_without_dir+to_string(gen)+"_"+to_string(t)+".csv";
+            calc_correlation(input_bed_file_path, out_rd_file_path, d_max, calc_interval,ignore_d);
+        }
+    }
+    
+}
+
 void start_simulation()
 {
     int round_start = 1;
@@ -850,6 +1173,18 @@ void start_simulation()
             simulate(round_i, generations,time_step,init_cell,neucleosome_id_list,cpg_id_list,detail_file_dir,ratio_file_dir,nuc_detail_dir,nuc_ratio_dir,nucleosome_pos_file_path,propensity_list,nucleosome_propensity_list,nuceo_to_cpg_efficiency,nearby_promote_efficiency,k_range,update_nuc_status_frequency,index_pos_list,max_cells,out_start_gen,out_end_gen,round_start);
         }
     }
+    if(calc_corr){
+        bed_file_dir = output_dir + "bed/";//detail的生成序列
+        
+        rd_without_dir=output_dir+"rd_without/";
+        
+        int round_size=round_end-round_start+1;
+        sort_to_bed(round_size,index_pos_list,detail_file_dir,bed_file_dir,out_start_gen,out_end_gen,time_step,max_cpg_sites);
+        calc_correlation_for_generations(out_start_gen,out_end_gen,time_step,bed_file_dir,rd_without_dir,d_max,calc_interval,ignore_d=false);
+        string out_mean_rd_file = output_dir+"rd_mean.csv";
+        calc_mean_rd_from_rd_dir(rd_without_dir,out_mean_rd_file,d_max,out_start_gen,out_end_gen,time_step);
+    }
+    
 }
 
 int main(int argc, const char * argv[]) {
