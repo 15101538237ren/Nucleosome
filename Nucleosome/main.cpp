@@ -317,7 +317,7 @@ vector<int> get_neucleosome_id_list_from_pos_list(vector<int> index_pos_list, st
     return nucleo_id_list;
 }
 
-void simulate(int round_no,int generation, int time_step, string init_cell,vector<int> neucleosome_id_list,vector<vector<int>> cpg_id_list, string detail_file_dir, string ratio_file_dir,string nucleosome_pos_file_path, vector<double> propensity_list,vector<double> nucleosome_propensity_list, vector<double> nuceo_to_cpg_efficiency,vector<double> nearby_promote_efficiency,vector<double> k_range, int update_nuc_status_frequency, vector<int> index_pos_list, int max_cells,int out_start_gen,int out_end_gen)
+void simulate(int round_no,int generation, int time_step, string init_cell,vector<int> neucleosome_id_list,vector<vector<int>> cpg_id_list, string detail_file_dir, string ratio_file_dir,string nuc_detail_dir, string nuc_ratio_dir,string nucleosome_pos_file_path, vector<double> propensity_list,vector<double> nucleosome_propensity_list, vector<double> nuceo_to_cpg_efficiency,vector<double> nearby_promote_efficiency,vector<double> k_range, int update_nuc_status_frequency, vector<int> index_pos_list, int max_cells,int out_start_gen,int out_end_gen,int round_start)
 {
     
     srand(time(0));
@@ -391,18 +391,22 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                     
                     double sum_propensity = 0.0;
                     int reaction_id=-1;
-                    int nucleo_id = neucleosome_id_list[target_reaction_CpG_site];
-                    char status_of_its_nucleosome = nucleo_collection[idx][nucleo_id];
                     
                     //核小体促进u+的比率
                     double u_add = 0.0;
                     //核小体减小m-的比率
                     double m_minus = 0.0;
                     
-                    if(status_of_its_nucleosome == 'H' or status_of_its_nucleosome == 'A')
+                    int nucleo_id = neucleosome_id_list[target_reaction_CpG_site];
+                    
+                    if (nucleo_id != -1)
                     {
-                        u_add = nuceo_to_cpg_efficiency[0];
-                        m_minus = nuceo_to_cpg_efficiency[1];
+                        char status_of_its_nucleosome = nucleo_collection[idx][nucleo_id];
+                        if(status_of_its_nucleosome == 'H' or status_of_its_nucleosome == 'A')
+                        {
+                            u_add = nuceo_to_cpg_efficiency[0];
+                            m_minus = nuceo_to_cpg_efficiency[1];
+                        }
                     }
                     
                     double u_i_plus = propensity_list[0];
@@ -444,9 +448,9 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                 
                 if ((j % update_nuc_status_frequency ==0) && (j != 0))
                 {
-                    for(int tk = 0; tk < cpg_id_list.size(); tk++)
+                    for(int tk = 0; tk < nuc_len; tk++)
                     {
-                        int k = rand()%(cpg_id_list.size() - 1);  //0~nuc_len-1
+                        int k = rand()%(nuc_len - 1);  //0~nuc_len-1
                         double uu_promote_ratio = 0.0;
                         double au_promote_ratio = 0.0;
                         
@@ -667,17 +671,17 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
             uu_means_ratio.pb(uu_mean);
         }
         
-        int len_init_cell=init_cell.length();
+        
         int buf_ratio_size=50;
         
         if ((i >= out_start_gen) and (i<= out_end_gen))
         {
             for(int t = 0; t < time_step; t++)
             {
-                string ratio_file_path=ratio_file_dir+to_string(i)+"_"+to_string(t)+".csv";
-                ofstream out_ratio(ratio_file_path,(round_no==round_start)?ios::trunc:ios::app);
+                string ratio_file_path = ratio_file_dir+to_string(i)+"_"+to_string(t)+".csv";
+                ofstream out_ratio(ratio_file_path ,(round_no == round_start)? ios::trunc : ios::app);
                 if(!out_ratio){
-                    cout << "Unable to open out" << ratio_file_path << endl;
+                    cout << "Unable To Open Write " << ratio_file_path << endl;
                     exit(1);
                 }
                 else{
@@ -686,26 +690,55 @@ void simulate(int round_no,int generation, int time_step, string init_cell,vecto
                     out_ratio<<buffer;
                     out_ratio.close();
                 }
+                
+                string nuc_ratio_file_path = nuc_ratio_dir+to_string(i)+"_"+to_string(t)+".csv";
+                ofstream out_nuc_ratio(nuc_ratio_file_path ,(round_no == round_start)? ios::trunc : ios::app);
+                if(!out_nuc_ratio){
+                    cout << "Unable To Open Write " << nuc_ratio_file_path << endl;
+                    exit(1);
+                }
+                else{
+                    char buffer[buf_ratio_size];
+                    sprintf(buffer, "%d,%.4f,%.4f,%.4f\n",round_no, aa_means_ratio[t],au_means_ratio[t],uu_means_ratio[t]);
+                    out_nuc_ratio<<buffer;
+                    out_nuc_ratio.close();
+                }
             }
-            
-            int buf_detail_size=len_init_cell+50;
+            int len_init_cell = (int)init_cell.length();
+            int buf_detail_size = len_init_cell + 50;
+            int buf_nuc_detail_size = ((int) nucleosome_status.length()) + 50;
             for(int idx = 0; idx < cell_collection.size();idx++)
             {
                 for(int j= 0; j < time_step;j++)
                 {
                     string detail_file_path=detail_file_dir+to_string(i)+"_"+to_string(j)+".csv";
-                    ofstream out_detail(detail_file_path,(round_no==round_start)?ios::trunc:ios::app);
+                    ofstream out_detail(detail_file_path,(round_no == round_start)?ios::trunc:ios::app);
                     
                     if(!out_detail){
-                        cout << "Unable to open out" << detail_file_path << endl;
+                        cout << "Unable To Open Write " << detail_file_path << endl;
                         exit(1);
                     }
                     else{
                         char buffer[buf_detail_size];//在index的size不等于1时,得到的结果是多细胞的
-                        sprintf(buffer, "%d,%s\n", round_no, out_detail_seq_arr[0][j].c_str());
+                        sprintf(buffer, "%d,%s\n", round_no, out_detail_seq_arr[idx][j].c_str());
                         out_detail<<buffer;
                         out_detail.close();
                     }
+                    
+                    string nuc_detail_file_path=nuc_detail_dir + to_string(i) + "_" + to_string(j) + ".csv";
+                    ofstream out_nuc_detail(nuc_detail_file_path,(round_no == round_start)?ios::trunc:ios::app);
+                    
+                    if(!out_nuc_detail){
+                        cout << "Unable To Open Write " << nuc_detail_file_path << endl;
+                        exit(1);
+                    }
+                    else{
+                        char buffer[buf_nuc_detail_size];//在index的size不等于1时,得到的结果是多细胞的
+                        sprintf(buffer, "%d,%s\n", round_no, out_nuc_detail_seq_arr[idx][j].c_str());
+                        out_nuc_detail << buffer;
+                        out_nuc_detail.close();
+                    }
+                    
                 }
             }
         }
@@ -735,9 +768,9 @@ vector<vector<int>> get_corresponding_cpg_id_list(int cpg_id_list_size,vector<in
 void start_simulation()
 {
     int round_start = 1;
-    int round_end = 6;
+    int round_end = 2;
     
-    int generations = 3;
+    int generations = 2;
     int max_cpg_sites = 100000;
     string init_cell;
     double m_ratio = 0.181214;
@@ -774,8 +807,10 @@ void start_simulation()
     string output_dir = path_dir + output_dir_name;
     string input_bed_file_path = path_dir + input_dir_name + "chr1.bed";
     string nucleosome_pos_file_path = output_dir + "nucleosome_positions.np";
-    string ratio_file_dir;
-    string detail_file_dir;
+    string ratio_file_dir = output_dir+"ratio/";//CpG ratio文件夹
+    string nuc_ratio_dir = output_dir + "nuc_ratio/"; //核小体 ratio 文件夹
+    string detail_file_dir = output_dir+"detail/";//CpG detail文件夹
+    string nuc_detail_dir = output_dir + "nuc_detail/"; //核小体 detail 文件夹
     string bed_file_dir;
     string rd_without_dir;
     
@@ -808,13 +843,11 @@ void start_simulation()
     vector<vector<int>> cpg_id_list = get_corresponding_cpg_id_list(nucleosome_list_size,neucleosome_id_list);
     
     init_cell = generate_CpG_in_methylation_percent_UHM(max_cpg_sites,m_ratio,u_ratio);
-    ratio_file_dir = output_dir+"ratio/";//detail的生成序列
-    detail_file_dir=output_dir+"detail/";//detail的生成序列
     
     if (simulation){
         for(int round_i=round_start;round_i<=round_end;round_i++)
         {
-            simulate(round_i, generations,time_step,init_cell,neucleosome_id_list,cpg_id_list,detail_file_dir,ratio_file_dir,nucleosome_pos_file_path,propensity_list,nucleosome_propensity_list,nuceo_to_cpg_efficiency,nearby_promote_efficiency,k_range,update_nuc_status_frequency,index_pos_list,max_cells,out_start_gen,out_end_gen);
+            simulate(round_i, generations,time_step,init_cell,neucleosome_id_list,cpg_id_list,detail_file_dir,ratio_file_dir,nuc_detail_dir,nuc_ratio_dir,nucleosome_pos_file_path,propensity_list,nucleosome_propensity_list,nuceo_to_cpg_efficiency,nearby_promote_efficiency,k_range,update_nuc_status_frequency,index_pos_list,max_cells,out_start_gen,out_end_gen,round_start);
         }
     }
 }
